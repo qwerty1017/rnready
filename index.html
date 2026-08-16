@@ -205,11 +205,32 @@
     padding-bottom:env(safe-area-inset-bottom);
   }
   .navbtn{
-    flex:1; padding:12px 0 10px; text-align:center; color:var(--ink-soft); font-size:10.5px;
-    font-weight:600; letter-spacing:.3px; text-transform:uppercase; background:none;
+    flex:1; padding:10px 0 9px; text-align:center; color:var(--ink-soft); font-size:9.5px;
+    font-weight:600; letter-spacing:.2px; text-transform:uppercase; background:none;
   }
   .navbtn.active{color:var(--navy);}
-  .navbtn .ic{font-size:19px; display:block; margin-bottom:2px;}
+  .navbtn .ic{font-size:17px; display:block; margin-bottom:2px;}
+
+  /* Chat */
+  .chat-wrap{display:flex; flex-direction:column; height:calc(100vh - 168px); height:calc(100dvh - 168px);}
+  .chat-log{flex:1; overflow-y:auto; padding-bottom:10px;}
+  .msg{max-width:85%; padding:11px 14px; border-radius:14px; margin-bottom:10px; font-size:13.5px; line-height:1.5;}
+  .msg.user{background:var(--navy); color:var(--paper); margin-left:auto; border-bottom-right-radius:4px;}
+  .msg.ai{background:#fff; border:1px solid var(--line); margin-right:auto; border-bottom-left-radius:4px; white-space:pre-wrap;}
+  .msg.system{background:var(--paper-dim); color:var(--ink-soft); font-size:12px; text-align:center; margin:0 auto 10px; max-width:100%; border-radius:10px;}
+  .chat-input-row{display:flex; gap:8px; padding-top:10px; border-top:1px solid var(--line);}
+  .chat-input-row textarea{
+    flex:1; border:1.5px solid var(--line); border-radius:14px; padding:10px 14px; font-family:inherit;
+    font-size:14px; resize:none; max-height:100px; background:#fff;
+  }
+  .chat-send{background:var(--navy); color:#fff; width:44px; height:44px; border-radius:50%; flex-shrink:0; font-size:18px;}
+  .chat-send[disabled]{opacity:.5;}
+  .chat-limit{font-size:11px; color:var(--ink-soft); text-align:center; margin-top:8px; font-family:var(--mono);}
+  .typing-dots{display:inline-flex; gap:3px; padding:4px 0;}
+  .typing-dots span{width:6px; height:6px; border-radius:50%; background:var(--ink-soft); animation:blink 1.2s infinite ease-in-out;}
+  .typing-dots span:nth-child(2){animation-delay:.2s;}
+  .typing-dots span:nth-child(3){animation-delay:.4s;}
+  @keyframes blink{0%,80%,100%{opacity:.3;}40%{opacity:1;}}
 
   .hidden{display:none !important;}
 
@@ -247,6 +268,7 @@
   <div class="bottomnav">
     <button class="navbtn active" data-view="home"><span class="ic">⌂</span>Home</button>
     <button class="navbtn" data-view="study"><span class="ic">▤</span>Study</button>
+    <button class="navbtn" data-view="chat"><span class="ic">✦</span>Ask AI</button>
     <button class="navbtn" data-view="notes"><span class="ic">✎</span>Notes</button>
     <button class="navbtn" data-view="search"><span class="ic">⌕</span>Search</button>
     <button class="navbtn" data-view="settings"><span class="ic">⚙</span>Settings</button>

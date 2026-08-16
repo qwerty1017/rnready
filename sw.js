@@ -1,4 +1,4 @@
-const CACHE = "rnready-v2";
+const CACHE = "rnready-v3";
 const ASSETS = [
   "./index.html",
   "./app.js",

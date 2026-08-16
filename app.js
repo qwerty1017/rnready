@@ -538,6 +538,107 @@
     reader.readAsText(file);
   }
 
+  // ================= AI CHAT =================
+  const WORKER_URL = "https://rnready-ai-proxy.billonesbenson.workers.dev/";
+  state.chatHistory = state.chatHistory || []; // [{role:'user'|'model', text}]
+  let chatBusy = false;
+
+  function viewChat(){
+    setActiveNav("chat");
+    renderVitals();
+    main.innerHTML = `
+      <div class="chat-wrap">
+        <div class="chat-log" id="chatLog"></div>
+        <div>
+          <div class="chat-input-row">
+            <textarea id="chatInput" rows="1" placeholder="Ask about a topic, or say 'quiz me on...'"></textarea>
+            <button class="chat-send" id="chatSend">↑</button>
+          </div>
+          <div class="chat-limit">Study assistant · limited free messages per day</div>
+        </div>
+      </div>
+    `;
+    renderChatLog();
+    const input = document.getElementById("chatInput");
+    document.getElementById("chatSend").addEventListener("click", sendChatMessage);
+    input.addEventListener("keydown", e=>{
+      if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendChatMessage(); }
+    });
+    input.addEventListener("input", ()=>{ input.style.height="auto"; input.style.height=Math.min(100,input.scrollHeight)+"px"; });
+  }
+
+  function renderChatLog(){
+    const log = document.getElementById("chatLog");
+    if(!log) return;
+    if(state.chatHistory.length===0){
+      log.innerHTML = `<div class="msg system">Hi! I'm your study assistant. Ask me to explain a topic, quiz you, or help summarize something you're studying.</div>`;
+    } else {
+      log.innerHTML = state.chatHistory.map(m=>
+        `<div class="msg ${m.role==='user'?'user':'ai'}">${escapeHtml(m.text)}</div>`
+      ).join("");
+    }
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function addTypingIndicator(){
+    const log = document.getElementById("chatLog");
+    if(!log) return;
+    const el = document.createElement("div");
+    el.className = "msg ai"; el.id = "typingIndicator";
+    el.innerHTML = `<span class="typing-dots"><span></span><span></span><span></span></span>`;
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+  }
+  function removeTypingIndicator(){
+    const el = document.getElementById("typingIndicator");
+    if(el) el.remove();
+  }
+
+  async function sendChatMessage(){
+    if(chatBusy) return;
+    const input = document.getElementById("chatInput");
+    const text = input.value.trim();
+    if(!text) return;
+    input.value = ""; input.style.height="auto";
+    chatBusy = true;
+    document.getElementById("chatSend").setAttribute("disabled","true");
+
+    state.chatHistory.push({role:"user", text});
+    saveProgress();
+    renderChatLog();
+    addTypingIndicator();
+
+    try{
+      const res = await fetch(WORKER_URL, {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          message: text,
+          history: state.chatHistory.slice(-11,-1)
+        })
+      });
+      const data = await res.json();
+      removeTypingIndicator();
+      if(!res.ok){
+        const msg = data.message || "Something went wrong. Please try again.";
+        state.chatHistory.push({role:"model", text: msg});
+      } else {
+        state.chatHistory.push({role:"model", text: data.reply});
+      }
+      saveProgress();
+      renderChatLog();
+    }catch(err){
+      removeTypingIndicator();
+      state.chatHistory.push({role:"model", text:"Couldn't reach the study assistant. Check your internet connection and try again."});
+      saveProgress();
+      renderChatLog();
+    }finally{
+      chatBusy = false;
+      const sendBtn = document.getElementById("chatSend");
+      if(sendBtn) sendBtn.removeAttribute("disabled");
+    }
+  }
+
   function removeFab(){ const fab=document.querySelector(".fab"); if(fab) fab.remove(); }
   navBtns.forEach(btn=>{
     btn.addEventListener("click", ()=>{
@@ -545,6 +646,7 @@
       const v = btn.dataset.view;
       if(v==="home") viewHome();
       else if(v==="study") viewStudy();
+      else if(v==="chat") viewChat();
       else if(v==="notes") viewNotes();
       else if(v==="search") viewSearch();
       else if(v==="settings") viewSettings();
