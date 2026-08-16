@@ -620,7 +620,8 @@
       const data = await res.json();
       removeTypingIndicator();
       if(!res.ok){
-        const msg = data.message || "Something went wrong. Please try again.";
+        let msg = data.message || "Something went wrong. Please try again.";
+        if(data.detail){ msg += "\n\n[Debug detail: " + data.detail + "]"; }
         state.chatHistory.push({role:"model", text: msg});
       } else {
         state.chatHistory.push({role:"model", text: data.reply});
