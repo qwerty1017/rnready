@@ -67,7 +67,7 @@
       const realId = String(qid).slice(2);
       const cq = state.customQuestions[realId];
       if(!cq) return null;
-      return { id:"c_"+cq.id, cat:cq.subjectId, q:cq.q, options:cq.options, correct:cq.correct, rationale:cq.rationale };
+      return { id:"c_"+cq.id, cat:cq.subjectId, q:cq.q, options:cq.options, correct:cq.correct, rationale:cq.rationale, sourceHeading:cq.sourceHeading||null, sourceSnippet:cq.sourceSnippet||null };
     }
     return QUESTIONS.find(x=>x.id===qid);
   }
@@ -200,11 +200,17 @@
     html += `<div class="cta-row">
       <button class="btn-primary" id="mixedBtn">Mixed Review</button>
       <button class="btn-ghost" id="newSubjectBtn">+ New Subject</button>
+    </div>
+    <div class="cta-row">
+      <button class="btn-ghost" id="genBtnEntry">✦ Generate from topic</button>
+      <button class="btn-ghost" id="anaBtnEntry">📄 Analyze a file</button>
     </div>`;
     main.innerHTML = html;
     main.querySelectorAll(".cat-card").forEach(btn=> btn.addEventListener("click", ()=> startQuiz(btn.dataset.cat)));
     document.getElementById("mixedBtn").addEventListener("click", ()=> startQuiz("all"));
     document.getElementById("newSubjectBtn").addEventListener("click", openAddSubjectModal);
+    document.getElementById("genBtnEntry").addEventListener("click", openGenerateModal);
+    document.getElementById("anaBtnEntry").addEventListener("click", openAnalyzeModal);
   }
 
   function startQuiz(catKey){
@@ -237,7 +243,7 @@
         <div class="q-text">${escapeHtml(q.q)}</div>
       </div>
       <div class="options">${optsHtml}</div>
-      <div class="rationale" id="rationale"><div class="r-label">Rationale</div><div id="rationaleText"></div></div>
+      <div class="rationale" id="rationale"><div class="r-label">Rationale</div><div id="rationaleText"></div>${q.sourceHeading?`<div class="source-tag"><span class="s-label">Source</span><br>${escapeHtml(q.sourceHeading)} — "${escapeHtml(q.sourceSnippet||"")}"</div>`:""}</div>
       <button class="btn-primary next-btn" id="nextBtn">Next question</button>
     `;
     document.getElementById("backBtn").addEventListener("click", viewStudy);
@@ -543,6 +549,201 @@
   state.chatHistory = state.chatHistory || []; // [{role:'user'|'model', text}]
   let chatBusy = false;
 
+  // ---- Shared: parse AI-generated Q&A text (with optional Source: line) into question objects ----
+  function parseAIQuestions(text, subjectId){
+    const blocks = text.split(/\n\s*\n/).map(b=>b.trim()).filter(Boolean);
+    let added = 0;
+    blocks.forEach(block=>{
+      const lines = block.split("\n").map(l=>l.trim()).filter(Boolean);
+      let qText="", opts=["","","",""], correct=0, rationale="", sourceHeading="", sourceSnippet="";
+      lines.forEach(line=>{
+        const mQ = line.match(/^Q:\s*(.+)/i);
+        const mA = line.match(/^A\)\s*(.+)/i);
+        const mB = line.match(/^B\)\s*(.+)/i);
+        const mC = line.match(/^C\)\s*(.+)/i);
+        const mD = line.match(/^D\)\s*(.+)/i);
+        const mCorrect = line.match(/^Correct:\s*([ABCD])/i);
+        const mRat = line.match(/^Rationale:\s*(.+)/i);
+        const mSrc = line.match(/^Source:\s*(.+?)\s*—\s*"(.+)"/i) || line.match(/^Source:\s*(.+?)\s*-\s*"(.+)"/i);
+        if(mQ) qText = mQ[1];
+        else if(mA) opts[0] = mA[1];
+        else if(mB) opts[1] = mB[1];
+        else if(mC) opts[2] = mC[1];
+        else if(mD) opts[3] = mD[1];
+        else if(mCorrect) correct = {A:0,B:1,C:2,D:3}[mCorrect[1].toUpperCase()];
+        else if(mRat) rationale = mRat[1];
+        else if(mSrc){ sourceHeading = mSrc[1]; sourceSnippet = mSrc[2]; }
+      });
+      if(qText && opts.every(o=>o)){
+        const qid = uid();
+        state.customQuestions[qid] = { id: qid, subjectId, q: qText, options: opts, correct, rationale: rationale || "No rationale provided.", sourceHeading: sourceHeading||null, sourceSnippet: sourceSnippet||null };
+        added++;
+      }
+    });
+    return added;
+  }
+
+  // ---- Generate study material (no file, topic-based) ----
+  function openGenerateModal(){
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    const subjOptions = allCategoryKeys().map(k=>`<option value="${k}">${escapeHtml(catMeta(k).name)}</option>`).join("");
+    overlay.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-head"><h3>Generate Study Material</h3><button class="modal-close" id="closeModal">&times;</button></div>
+        <div class="field"><label>Topic</label><input type="text" id="genTopic" placeholder="e.g., Insulin types and onset times"></div>
+        <div class="field"><label>Save into subject</label>
+          <select id="genSubject"><option value="__new__">Create new subject from topic</option>${subjOptions}</select>
+        </div>
+        <div class="field"><label>How many questions (1-20)</label><input type="text" id="genCount" value="10"></div>
+        <button class="btn-primary" id="genBtn" style="width:100%;">Generate</button>
+        <div class="file-cap-note">Uses your daily AI chat allowance.</div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
+    document.getElementById("closeModal").addEventListener("click", ()=>overlay.remove());
+    document.getElementById("genBtn").addEventListener("click", async ()=>{
+      const topic = document.getElementById("genTopic").value.trim();
+      const count = parseInt(document.getElementById("genCount").value,10) || 10;
+      let subjectId = document.getElementById("genSubject").value;
+      if(!topic){ alert("Please enter a topic."); return; }
+      if(subjectId === "__new__"){
+        const colors = ["#C1584B","#0F3D3E","#C99A3D","#3F7A5C","#6B5B95","#4C6B8A","#B4453B","#8A6D3B"];
+        const id = uid();
+        state.customSubjects[id] = { id, name: topic.slice(0,40), color: colors[Object.keys(state.customSubjects).length % colors.length], createdAt: Date.now() };
+        subjectId = id;
+        saveProgress();
+      }
+      const sheet = overlay.querySelector(".modal-sheet");
+      sheet.innerHTML = `<div class="analyze-progress"><div class="spinner"></div><div class="stage">Generating questions...</div></div>`;
+      try{
+        const res = await fetch(WORKER_URL, {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({ mode:"generate", topic, count, subjectId })
+        });
+        const data = await res.json();
+        if(!res.ok){ alert(data.message || "Something went wrong."); overlay.remove(); return; }
+        const added = parseAIQuestions(data.reply, subjectId);
+        saveProgress();
+        overlay.remove();
+        if(added>0){ alert(added + " question(s) generated and saved."); viewStudy(); }
+        else alert("Couldn't parse the generated questions. Please try again.");
+      }catch(err){
+        alert("Couldn't reach the study assistant. Check your connection.");
+        overlay.remove();
+      }
+    });
+  }
+
+  // ---- PDF text extraction with lightweight heading detection ----
+  async function extractPdfSections(file){
+    const arrayBuf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+    const maxPages = Math.min(pdf.numPages, 60);
+    let allItems = [];
+    for(let p=1; p<=maxPages; p++){
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      content.items.forEach(item=>{
+        const fontSize = Math.abs(item.transform[0]) || 10;
+        allItems.push({ text: item.str, fontSize, page: p });
+      });
+    }
+    if(allItems.length===0) return [];
+    const sizes = allItems.map(i=>i.fontSize).filter(s=>s>0);
+    sizes.sort((a,b)=>a-b);
+    const median = sizes[Math.floor(sizes.length/2)] || 10;
+    const headingThreshold = median * 1.25;
+
+    const sections = [];
+    let current = { heading: "Introduction", text: "" };
+    allItems.forEach(item=>{
+      const t = item.text.trim();
+      if(!t) return;
+      const isHeading = item.fontSize >= headingThreshold && t.length < 80 && t.length > 2;
+      if(isHeading){
+        if(current.text.trim().length > 30) sections.push(current);
+        current = { heading: t, text: "" };
+      } else {
+        current.text += t + " ";
+      }
+    });
+    if(current.text.trim().length > 30) sections.push(current);
+    return sections;
+  }
+
+  function openAnalyzeModal(){
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    const subjOptions = allCategoryKeys().map(k=>`<option value="${k}">${escapeHtml(catMeta(k).name)}</option>`).join("");
+    overlay.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-head"><h3>Analyze a File</h3><button class="modal-close" id="closeModal">&times;</button></div>
+        <div class="analyze-drop" id="dropZone">Tap to choose a PDF (typed text, not scanned — up to ~50 pages)</div>
+        <input type="file" id="pdfInput" accept="application/pdf" style="display:none;">
+        <div class="field"><label>Save into subject</label>
+          <select id="anaSubject"><option value="__new__">Create new subject from file name</option>${subjOptions}</select>
+        </div>
+        <div class="field"><label>How many questions (1-15)</label><input type="text" id="anaCount" value="12"></div>
+        <button class="btn-primary" id="anaBtn" style="width:100%;" disabled>Choose a file first</button>
+        <div class="file-cap-note">Limited file analysis sessions per day — one chapter/lecture at a time works best.</div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
+    document.getElementById("closeModal").addEventListener("click", ()=>overlay.remove());
+
+    let selectedFile = null;
+    const dropZone = document.getElementById("dropZone");
+    const pdfInput = document.getElementById("pdfInput");
+    const anaBtn = document.getElementById("anaBtn");
+    dropZone.addEventListener("click", ()=> pdfInput.click());
+    pdfInput.addEventListener("change", ()=>{
+      const file = pdfInput.files[0];
+      if(!file) return;
+      if(file.size > 20*1024*1024){ alert("File is quite large — try a smaller chapter/section for best results."); }
+      selectedFile = file;
+      dropZone.textContent = "Selected: " + file.name;
+      dropZone.classList.add("has-file");
+      anaBtn.disabled = false;
+      anaBtn.textContent = "Analyze & generate flashcards";
+    });
+
+    anaBtn.addEventListener("click", async ()=>{
+      if(!selectedFile) return;
+      const count = parseInt(document.getElementById("anaCount").value,10) || 12;
+      let subjectId = document.getElementById("anaSubject").value;
+      const sheet = overlay.querySelector(".modal-sheet");
+      sheet.innerHTML = `<div class="analyze-progress"><div class="spinner"></div><div class="stage" id="stageText">Reading PDF...</div></div>`;
+      try{
+        const sections = await extractPdfSections(selectedFile);
+        if(sections.length===0){ alert("Couldn't read text from this PDF. It may be scanned/image-based, which isn't supported yet."); overlay.remove(); return; }
+        if(subjectId === "__new__"){
+          const colors = ["#C1584B","#0F3D3E","#C99A3D","#3F7A5C","#6B5B95","#4C6B8A","#B4453B","#8A6D3B"];
+          const id = uid();
+          state.customSubjects[id] = { id, name: selectedFile.name.replace(/\.pdf$/i,"").slice(0,40), color: colors[Object.keys(state.customSubjects).length % colors.length], createdAt: Date.now() };
+          subjectId = id;
+          saveProgress();
+        }
+        const stageEl = document.getElementById("stageText");
+        if(stageEl) stageEl.textContent = "Generating flashcards from content...";
+        const res = await fetch(WORKER_URL, {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({ mode:"analyze", sections, count, subjectId })
+        });
+        const data = await res.json();
+        if(!res.ok){ alert(data.message || "Something went wrong."); overlay.remove(); return; }
+        const added = parseAIQuestions(data.reply, subjectId);
+        saveProgress();
+        overlay.remove();
+        if(added>0){ alert(added + " question(s) added, with source references."); viewStudy(); }
+        else alert("Couldn't parse the generated questions. Please try again with a shorter section.");
+      }catch(err){
+        alert("Something went wrong reading or analyzing this file. Try a smaller/simpler PDF.");
+        overlay.remove();
+      }
+    });
+  }
+
   function viewChat(){
     setActiveNav("chat");
     renderVitals();
@@ -613,6 +814,7 @@
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
+          mode: "chat",
           message: text,
           history: state.chatHistory.slice(-11,-1)
         })
