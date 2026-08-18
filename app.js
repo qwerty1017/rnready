@@ -622,7 +622,7 @@
           body: JSON.stringify({ mode:"generate", topic, count, subjectId })
         });
         const data = await res.json();
-        if(!res.ok){ alert(data.message || "Something went wrong."); overlay.remove(); return; }
+        if(!res.ok){ let m=data.message||"Something went wrong."; if(data.detail) m+="\n\n[Debug: "+data.detail+"]"; alert(m); overlay.remove(); return; }
         const added = parseAIQuestions(data.reply, subjectId);
         saveProgress();
         overlay.remove();
@@ -731,14 +731,14 @@
           body: JSON.stringify({ mode:"analyze", sections, count, subjectId })
         });
         const data = await res.json();
-        if(!res.ok){ alert(data.message || "Something went wrong."); overlay.remove(); return; }
+        if(!res.ok){ let m=data.message||"Something went wrong."; if(data.detail) m+="\n\n[Debug: "+data.detail+"]"; alert(m); overlay.remove(); return; }
         const added = parseAIQuestions(data.reply, subjectId);
         saveProgress();
         overlay.remove();
         if(added>0){ alert(added + " question(s) added, with source references."); viewStudy(); }
         else alert("Couldn't parse the generated questions. Please try again with a shorter section.");
       }catch(err){
-        alert("Something went wrong reading or analyzing this file. Try a smaller/simpler PDF.");
+        alert("Something went wrong reading or analyzing this file.\n\n[Debug: " + (err && err.message ? err.message : String(err)) + "]");
         overlay.remove();
       }
     });
