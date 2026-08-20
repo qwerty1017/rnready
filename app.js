@@ -398,23 +398,41 @@
     renderVitals();
     const notes = Object.values(state.notes).sort((a,b)=>b.updatedAt-a.updatedAt);
     let html = `<div class="section-label">Your notes</div>`;
-    if(notes.length===0) html += `<div class="empty-state"><div class="big">No notes yet</div><p>Tap the + button to create your first note.</p></div>`;
+    if(notes.length===0) html += `<div class="empty-state"><div class="big">No notes yet</div><p>Tap + for a note, or the pencil for a sketch.</p></div>`;
     else notes.forEach(n=>{
       const subj = n.subjectId ? catMeta(n.subjectId) : null;
-      html += `<div class="note-card" data-id="${n.id}">
-        ${subj?`<span class="n-tag">${escapeHtml(subj.name)}</span>`:""}
-        <div class="n-title">${escapeHtml(n.title||"Untitled")}</div>
-        <div class="n-preview">${escapeHtml(n.body||"")}</div>
-      </div>`;
+      if(n.type==="sketch"){
+        html += `<div class="note-card" data-id="${n.id}">
+          ${subj?`<span class="n-tag">${escapeHtml(subj.name)}</span>`:""}
+          <div class="n-title">${escapeHtml(n.title||"Untitled sketch")}</div>
+          <img class="sketch-thumb" src="${n.dataUrl}" alt="sketch">
+        </div>`;
+      } else {
+        html += `<div class="note-card" data-id="${n.id}">
+          ${subj?`<span class="n-tag">${escapeHtml(subj.name)}</span>`:""}
+          <div class="n-title">${escapeHtml(n.title||"Untitled")}</div>
+          <div class="n-preview">${escapeHtml(n.body||"")}</div>
+        </div>`;
+      }
     });
     main.innerHTML = html;
-    main.querySelectorAll(".note-card").forEach(card=> card.addEventListener("click", ()=> openNoteEditor(card.dataset.id)));
-    let fab = document.querySelector(".fab");
-    if(fab) fab.remove();
-    fab = document.createElement("button");
+    main.querySelectorAll(".note-card").forEach(card=>{
+      card.addEventListener("click", ()=>{
+        const n = state.notes[card.dataset.id];
+        if(n && n.type==="sketch") openSketchEditor(card.dataset.id);
+        else openNoteEditor(card.dataset.id);
+      });
+    });
+    removeFab();
+    const fab = document.createElement("button");
     fab.className="fab"; fab.textContent="+";
     fab.addEventListener("click", ()=>openNoteEditor(null));
     document.getElementById("app").appendChild(fab);
+    const fab2 = document.createElement("button");
+    fab2.className="fab fab-secondary"; fab2.textContent="✎";
+    fab2.title = "New sketch";
+    fab2.addEventListener("click", ()=>openSketchEditor(null));
+    document.getElementById("app").appendChild(fab2);
   }
 
   function openNoteEditor(noteId){
@@ -455,6 +473,150 @@
     });
   }
 
+  // ---- Sketch canvas editor ----
+  function openSketchEditor(noteId){
+    const existing = noteId ? state.notes[noteId] : null;
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay sketch-modal";
+    const subjOptions = allCategoryKeys().map(k=>`<option value="${k}" ${existing&&existing.subjectId===k?"selected":""}>${escapeHtml(catMeta(k).name)}</option>`).join("");
+    const colors = ["#3B2430","#B5486E","#5FA88A","#3B6EA5","#E8A23B"];
+    overlay.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-head"><h3>${existing?"Edit Sketch":"New Sketch"}</h3><button class="modal-close" id="closeModal">&times;</button></div>
+        <div class="field"><input type="text" id="sketchTitle" value="${existing?escapeHtml(existing.title):""}" placeholder="Sketch title"></div>
+        <div class="sketch-toolbar">
+          <div class="sketch-colors" id="sketchColors">
+            ${colors.map((c,i)=>`<div class="sketch-color ${i===0?'active':''}" data-color="${c}" style="background:${c}"></div>`).join("")}
+          </div>
+          <div class="sketch-size" id="sketchSizes">
+            <button data-size="2">S</button><button data-size="5" class="active">M</button><button data-size="10">L</button>
+          </div>
+          <button class="sketch-tool-btn" id="eraserBtn">Eraser</button>
+          <button class="sketch-tool-btn" id="clearBtn">Clear</button>
+        </div>
+        <div class="sketch-canvas-wrap"><canvas id="sketchCanvas" height="360"></canvas></div>
+        <div class="field" style="margin-top:14px;"><label>Subject (optional)</label>
+          <select id="sketchSubject"><option value="">No subject</option>${subjOptions}</select>
+        </div>
+        <div class="cta-row">
+          <button class="btn-primary" id="saveSketchBtn">Save</button>
+          ${existing?`<button class="btn-ghost" id="deleteSketchBtn" style="border-color:var(--bad); color:var(--bad);">Delete</button>`:""}
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
+    document.getElementById("closeModal").addEventListener("click", ()=>overlay.remove());
+
+    const canvas = document.getElementById("sketchCanvas");
+    const wrap = canvas.parentElement;
+    const ctx = canvas.getContext("2d");
+    let drawColor = colors[0];
+    let drawSize = 5;
+    let erasing = false;
+    let drawing = false;
+    let lastX=0, lastY=0;
+
+    function setupCanvasSize(){
+      const rect = wrap.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const prevImg = canvas.width>0 ? canvas.toDataURL() : null;
+      canvas.width = rect.width * dpr;
+      canvas.height = 360 * dpr;
+      canvas.style.height = "360px";
+      ctx.scale(dpr, dpr);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0,0,rect.width,360);
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      if(prevImg){
+        const img = new Image();
+        img.onload = ()=> ctx.drawImage(img,0,0,rect.width,360);
+        img.src = prevImg;
+      } else if(existing && existing.dataUrl){
+        const img = new Image();
+        img.onload = ()=> ctx.drawImage(img,0,0,rect.width,360);
+        img.src = existing.dataUrl;
+      }
+    }
+    setupCanvasSize();
+    window.addEventListener("resize", setupCanvasSize);
+
+    function getPos(e){
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return { x: clientX-rect.left, y: clientY-rect.top };
+    }
+    function startDraw(e){
+      e.preventDefault();
+      drawing = true;
+      const p = getPos(e); lastX=p.x; lastY=p.y;
+      ctx.beginPath(); ctx.moveTo(p.x,p.y);
+    }
+    function moveDraw(e){
+      if(!drawing) return;
+      e.preventDefault();
+      const p = getPos(e);
+      ctx.lineWidth = erasing ? drawSize*3 : drawSize;
+      ctx.strokeStyle = erasing ? "#ffffff" : drawColor;
+      ctx.lineTo(p.x,p.y); ctx.stroke();
+      lastX=p.x; lastY=p.y;
+    }
+    function endDraw(e){ drawing=false; }
+
+    canvas.addEventListener("pointerdown", startDraw);
+    canvas.addEventListener("pointermove", moveDraw);
+    window.addEventListener("pointerup", endDraw);
+    canvas.addEventListener("touchstart", startDraw, {passive:false});
+    canvas.addEventListener("touchmove", moveDraw, {passive:false});
+    canvas.addEventListener("touchend", endDraw);
+
+    overlay.querySelectorAll(".sketch-color").forEach(el=>{
+      el.addEventListener("click", ()=>{
+        overlay.querySelectorAll(".sketch-color").forEach(c=>c.classList.remove("active"));
+        el.classList.add("active");
+        drawColor = el.dataset.color;
+        erasing = false;
+        document.getElementById("eraserBtn").classList.remove("active");
+      });
+    });
+    overlay.querySelectorAll("#sketchSizes button").forEach(el=>{
+      el.addEventListener("click", ()=>{
+        overlay.querySelectorAll("#sketchSizes button").forEach(b=>b.classList.remove("active"));
+        el.classList.add("active");
+        drawSize = parseInt(el.dataset.size,10);
+      });
+    });
+    document.getElementById("eraserBtn").addEventListener("click", (e)=>{
+      erasing = !erasing;
+      e.target.classList.toggle("active", erasing);
+    });
+    document.getElementById("clearBtn").addEventListener("click", ()=>{
+      if(confirm("Clear the whole sketch?")){
+        const rect = wrap.getBoundingClientRect();
+        ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,rect.width,360);
+      }
+    });
+    document.getElementById("saveSketchBtn").addEventListener("click", ()=>{
+      const title = document.getElementById("sketchTitle").value.trim();
+      const subjectId = document.getElementById("sketchSubject").value || null;
+      const dataUrl = canvas.toDataURL("image/png");
+      const id = existing ? existing.id : uid();
+      state.notes[id] = { id, type:"sketch", title: title||"Untitled sketch", dataUrl, subjectId, updatedAt: Date.now() };
+      saveProgress();
+      window.removeEventListener("resize", setupCanvasSize);
+      overlay.remove();
+      viewNotes();
+    });
+    const delBtn = document.getElementById("deleteSketchBtn");
+    if(delBtn) delBtn.addEventListener("click", ()=>{
+      if(confirm("Delete this sketch?")){
+        delete state.notes[existing.id]; saveProgress();
+        window.removeEventListener("resize", setupCanvasSize);
+        overlay.remove(); viewNotes();
+      }
+    });
+  }
+
   function viewSearch(){
     setActiveNav("search");
     renderVitals();
@@ -491,7 +653,11 @@
       el.addEventListener("click", ()=> startQuiz(el.dataset.cat));
     });
     results.querySelectorAll(".result-item[data-note]").forEach(el=>{
-      el.addEventListener("click", ()=> openNoteEditor(el.dataset.note));
+      el.addEventListener("click", ()=>{
+        const n = state.notes[el.dataset.note];
+        if(n && n.type==="sketch") openSketchEditor(el.dataset.note);
+        else openNoteEditor(el.dataset.note);
+      });
     });
   }
 
@@ -842,7 +1008,7 @@
     }
   }
 
-  function removeFab(){ const fab=document.querySelector(".fab"); if(fab) fab.remove(); }
+  function removeFab(){ document.querySelectorAll(".fab").forEach(f=>f.remove()); }
   navBtns.forEach(btn=>{
     btn.addEventListener("click", ()=>{
       removeFab();
