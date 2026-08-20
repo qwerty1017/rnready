@@ -189,11 +189,12 @@
       customKeys.forEach(key=>{
         const c = state.customSubjects[key]; const st = catStats(key);
         const accText = st.acc===null?"—":st.acc+"%";
-        html += `<button class="cat-card" data-cat="${key}">
+        html += `<div class="cat-card" data-cat="${key}" style="cursor:pointer;">
           <div class="swatch" style="background:${c.color}"></div>
           <div class="body"><div class="name">${escapeHtml(c.name)}</div><div class="meta">${st.count} questions · ${st.seen} studied</div></div>
           <div class="accuracy" style="color:${c.color}">${accText}</div>
-        </button>`;
+          <button class="subj-delete" data-delkey="${key}" title="Delete subject">&times;</button>
+        </div>`;
       });
     }
 
@@ -793,7 +794,7 @@
         saveProgress();
         overlay.remove();
         if(added>0){ alert(added + " question(s) generated and saved."); viewStudy(); }
-        else alert("Couldn't parse the generated questions. Please try again.");
+        else alert("Couldn't parse the generated questions.\n\n[Raw AI reply:]\n" + (data.reply||"(empty)").slice(0,800));
       }catch(err){
         alert("Couldn't reach the study assistant. Check your connection.");
         overlay.remove();
@@ -902,7 +903,7 @@
         saveProgress();
         overlay.remove();
         if(added>0){ alert(added + " question(s) added, with source references."); viewStudy(); }
-        else alert("Couldn't parse the generated questions. Please try again with a shorter section.");
+        else alert("Couldn't parse the generated questions.\n\n[Raw AI reply:]\n" + (data.reply||"(empty)").slice(0,800));
       }catch(err){
         alert("Something went wrong reading or analyzing this file.\n\n[Debug: " + (err && err.message ? err.message : String(err)) + "]");
         overlay.remove();
