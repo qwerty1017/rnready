@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#0F3D3E">
+<meta name="theme-color" content="#B5486E">
 <title>RN Ready</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -11,18 +11,18 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   :root{
-    --navy:#0F3D3E;
-    --navy-deep:#0A2C2D;
-    --paper:#F6F3EC;
-    --paper-dim:#EAE5D8;
-    --gold:#C99A3D;
-    --coral:#C1584B;
-    --ink:#1E2422;
-    --ink-soft:#5B655F;
-    --line:#D8D1BE;
-    --good:#3F7A5C;
-    --bad:#B4453B;
-    --radius:14px;
+    --navy:#B5486E;
+    --navy-deep:#8F3455;
+    --paper:#FFF6F8;
+    --paper-dim:#FCE8EE;
+    --gold:#F2A6C0;
+    --coral:#E8618A;
+    --ink:#3B2430;
+    --ink-soft:#8C6B78;
+    --line:#F3D3DE;
+    --good:#5FA88A;
+    --bad:#D6567B;
+    --radius:16px;
     --serif: 'Iowan Old Style', 'Georgia', 'Times New Roman', serif;
     --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --mono: 'SF Mono', 'Menlo', monospace;
@@ -38,6 +38,14 @@
     padding-bottom:env(safe-area-inset-bottom);
   }
   #app{max-width:480px;margin:0 auto;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;}
+  @media (min-width:600px){
+    body{ display:flex; justify-content:center; }
+    #app{ box-shadow:0 0 40px rgba(181,72,110,.08); min-height:100vh; }
+    .bottomnav{ box-shadow:0 -4px 20px rgba(181,72,110,.08); }
+  }
+  button, .cat-card, .option, .navbtn, .note-card{ transition: transform .12s ease, box-shadow .12s ease, background .15s ease, border-color .15s ease; }
+  button:active:not([disabled]){ transform:scale(.96); }
+  .cat-card:active, .note-card:active{ transform:scale(.98); }
 
   /* Header / vitals strip */
   .topbar{
@@ -132,8 +140,8 @@
   .cat-card{
     background:#fff; border:1px solid var(--line); border-radius:var(--radius);
     padding:14px 16px; margin-bottom:10px; display:flex; align-items:center; gap:14px;
-    cursor:pointer; transition:transform .15s, box-shadow .15s; text-align:left; width:100%;
-    font-family:inherit;
+    cursor:pointer; text-align:left; width:100%;
+    font-family:inherit; box-shadow:0 2px 8px rgba(181,72,110,.06);
   }
   .cat-card:active{transform:scale(.98);}
   .cat-card .swatch{width:6px; align-self:stretch; border-radius:4px; flex-shrink:0;}
