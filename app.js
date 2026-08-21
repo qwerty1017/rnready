@@ -59,7 +59,7 @@
   function allQuestionsForCat(catKey){
     const builtIn = QUESTIONS.filter(q => catKey==="all" ? true : q.cat===catKey);
     const custom = Object.values(state.customQuestions).filter(q => catKey==="all" ? true : q.subjectId===catKey)
-      .map(q => ({ id:"c_"+q.id, cat:q.subjectId, q:q.q, options:q.options, correct:q.correct, rationale:q.rationale }));
+      .map(q => ({ id:"c_"+q.id, cat:q.subjectId, q:q.q, options:q.options, correct:q.correct, rationale:q.rationale, type:q.type||"mc", expectedAnswer:q.expectedAnswer||null, sourceHeading:q.sourceHeading||null, sourceSnippet:q.sourceSnippet||null }));
     return builtIn.concat(custom);
   }
   function findQuestion(qid){
@@ -67,9 +67,11 @@
       const realId = String(qid).slice(2);
       const cq = state.customQuestions[realId];
       if(!cq) return null;
-      return { id:"c_"+cq.id, cat:cq.subjectId, q:cq.q, options:cq.options, correct:cq.correct, rationale:cq.rationale, sourceHeading:cq.sourceHeading||null, sourceSnippet:cq.sourceSnippet||null };
+      return { id:"c_"+cq.id, cat:cq.subjectId, q:cq.q, options:cq.options, correct:cq.correct, rationale:cq.rationale, type:cq.type||"mc", expectedAnswer:cq.expectedAnswer||null, sourceHeading:cq.sourceHeading||null, sourceSnippet:cq.sourceSnippet||null };
     }
-    return QUESTIONS.find(x=>x.id===qid);
+    const built = QUESTIONS.find(x=>x.id===qid);
+    if(built) return { ...built, type:"mc" };
+    return null;
   }
   function allCategoryKeys(){
     return Object.keys(CATEGORIES).concat(Object.keys(state.customSubjects));
@@ -189,11 +191,11 @@
       customKeys.forEach(key=>{
         const c = state.customSubjects[key]; const st = catStats(key);
         const accText = st.acc===null?"—":st.acc+"%";
-        html += `<div class="cat-card" data-cat="${key}" style="cursor:pointer;">
+        html += `<div class="cat-card" data-cat="${key}" style="cursor:pointer; position:relative; padding-right:44px;">
           <div class="swatch" style="background:${c.color}"></div>
           <div class="body"><div class="name">${escapeHtml(c.name)}</div><div class="meta">${st.count} questions · ${st.seen} studied</div></div>
           <div class="accuracy" style="color:${c.color}">${accText}</div>
-          <button class="subj-delete" data-delkey="${key}" title="Delete subject">&times;</button>
+          <button class="subj-menu-btn" data-menukey="${key}" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; color:var(--ink-soft); font-size:20px; padding:6px 8px;">⋮</button>
         </div>`;
       });
     }
@@ -207,11 +209,78 @@
       <button class="btn-ghost" id="anaBtnEntry">📄 Analyze a file</button>
     </div>`;
     main.innerHTML = html;
-    main.querySelectorAll(".cat-card").forEach(btn=> btn.addEventListener("click", ()=> startQuiz(btn.dataset.cat)));
+    main.querySelectorAll(".cat-card").forEach(btn=> btn.addEventListener("click", (e)=>{
+      if(e.target.classList.contains("subj-menu-btn")) return;
+      startQuiz(btn.dataset.cat);
+    }));
+    main.querySelectorAll(".subj-menu-btn").forEach(btn=>{
+      btn.addEventListener("click", (e)=>{ e.stopPropagation(); openSubjectMenu(btn.dataset.menukey); });
+    });
     document.getElementById("mixedBtn").addEventListener("click", ()=> startQuiz("all"));
     document.getElementById("newSubjectBtn").addEventListener("click", openAddSubjectModal);
     document.getElementById("genBtnEntry").addEventListener("click", openGenerateModal);
     document.getElementById("anaBtnEntry").addEventListener("click", openAnalyzeModal);
+  }
+
+  function openSubjectMenu(subjectId){
+    const subj = state.customSubjects[subjectId];
+    if(!subj) return;
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-head"><h3>${escapeHtml(subj.name)}</h3><button class="modal-close" id="closeModal">&times;</button></div>
+        <button class="btn-ghost" id="renameBtn" style="width:100%; margin-bottom:10px;">Rename subject</button>
+        <button class="btn-ghost" id="deleteSubjBtn" style="width:100%; border-color:var(--bad); color:var(--bad);">Delete subject</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
+    document.getElementById("closeModal").addEventListener("click", ()=>overlay.remove());
+    document.getElementById("renameBtn").addEventListener("click", ()=>{
+      overlay.remove();
+      openRenameSubjectModal(subjectId);
+    });
+    document.getElementById("deleteSubjBtn").addEventListener("click", ()=>{
+      overlay.remove();
+      const qCount = Object.values(state.customQuestions).filter(q=>q.subjectId===subjectId).length;
+      const msg = `Delete "${subj.name}"? This removes ${qCount} question(s) and their progress. Notes tagged to this subject will keep their content but lose the tag.`;
+      if(confirm(msg)){
+        Object.keys(state.customQuestions).forEach(qid=>{
+          if(state.customQuestions[qid].subjectId === subjectId){
+            delete state.items["c_"+qid];
+            delete state.customQuestions[qid];
+          }
+        });
+        Object.values(state.notes).forEach(n=>{ if(n.subjectId===subjectId) n.subjectId=null; });
+        delete state.customSubjects[subjectId];
+        saveProgress();
+        viewStudy();
+      }
+    });
+  }
+
+  function openRenameSubjectModal(subjectId){
+    const subj = state.customSubjects[subjectId];
+    if(!subj) return;
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-head"><h3>Rename Subject</h3><button class="modal-close" id="closeModal">&times;</button></div>
+        <div class="field"><label>Subject name</label><input type="text" id="renameInput" value="${escapeHtml(subj.name)}"></div>
+        <button class="btn-primary" id="saveRenameBtn" style="width:100%;">Save</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
+    document.getElementById("closeModal").addEventListener("click", ()=>overlay.remove());
+    document.getElementById("saveRenameBtn").addEventListener("click", ()=>{
+      const newName = document.getElementById("renameInput").value.trim();
+      if(!newName){ alert("Please enter a name."); return; }
+      state.customSubjects[subjectId].name = newName;
+      saveProgress();
+      overlay.remove();
+      viewStudy();
+    });
   }
 
   function startQuiz(catKey){
@@ -230,6 +299,28 @@
     if(!q){ nextQuestion(); return; }
     const cat = catMeta(q.cat);
     currentQuiz.answered = false;
+
+    if(q.type === "short"){
+      main.innerHTML = `
+        <div class="quiz-head">
+          <button class="back-btn" id="backBtn">← Back</button>
+          <span class="progress-pill">${currentQuiz.idx+1} / ${currentQuiz.queue.length}</span>
+        </div>
+        <div class="q-card">
+          <div class="q-cat" style="color:${cat.color}">${escapeHtml(cat.name)} · Short answer</div>
+          <div class="q-text">${escapeHtml(q.q)}</div>
+        </div>
+        <div class="field"><textarea id="shortAnswerInput" placeholder="Type your answer..." style="min-height:80px;"></textarea></div>
+        <button class="btn-primary" id="submitShortBtn" style="width:100%;">Submit answer</button>
+        <div class="rationale" id="rationale"><div class="r-label" id="verdictLabel">Result</div><div id="rationaleText"></div>${q.sourceHeading?`<div class="source-tag"><span class="s-label">Source</span><br>${escapeHtml(q.sourceHeading)} — "${escapeHtml(q.sourceSnippet||"")}"</div>`:""}</div>
+        <button class="btn-primary next-btn" id="nextBtn">Next question</button>
+      `;
+      document.getElementById("backBtn").addEventListener("click", viewStudy);
+      document.getElementById("nextBtn").addEventListener("click", nextQuestion);
+      document.getElementById("submitShortBtn").addEventListener("click", ()=> submitShortAnswer(q));
+      return;
+    }
+
     const letters=["A","B","C","D"];
     let optsHtml="";
     q.options.forEach((opt,i)=>{ optsHtml += `<button class="option" data-idx="${i}"><span class="letter">${letters[i]}</span><span class="opt-text">${escapeHtml(opt)}</span></button>`; });
@@ -250,6 +341,59 @@
     document.getElementById("backBtn").addEventListener("click", viewStudy);
     document.getElementById("nextBtn").addEventListener("click", nextQuestion);
     main.querySelectorAll(".option").forEach(btn=> btn.addEventListener("click", ()=> selectAnswer(parseInt(btn.dataset.idx,10), q)));
+  }
+
+  async function submitShortAnswer(q){
+    if(currentQuiz.answered) return;
+    const input = document.getElementById("shortAnswerInput");
+    const userAnswer = input.value.trim();
+    if(!userAnswer){ alert("Please type an answer first."); return; }
+    currentQuiz.answered = true;
+    const submitBtn = document.getElementById("submitShortBtn");
+    submitBtn.setAttribute("disabled","true");
+    submitBtn.textContent = "Checking with AI...";
+    input.setAttribute("disabled","true");
+
+    try{
+      const res = await fetch(WORKER_URL, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ mode:"grade", question:q.q, expectedAnswer:q.expectedAnswer, userAnswer })
+      });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.message || "grading failed");
+      const verdictMatch = (data.reply||"").match(/Verdict:\s*(Correct|Partially Correct|Incorrect)/i);
+      const feedbackMatch = (data.reply||"").match(/Feedback:\s*([\s\S]+)/i);
+      const verdict = verdictMatch ? verdictMatch[1] : "Unable to grade";
+      const feedback = feedbackMatch ? feedbackMatch[1].trim() : (data.reply||"No feedback available.");
+      showShortAnswerResult(q, verdict, feedback);
+    }catch(err){
+      showSelfGradeFallback(q);
+    }
+  }
+
+  function showShortAnswerResult(q, verdict, feedback){
+    const isCorrect = /^correct$/i.test(verdict);
+    document.getElementById("verdictLabel").textContent = verdict;
+    document.getElementById("verdictLabel").style.color = isCorrect ? "var(--good)" : (/partially/i.test(verdict) ? "var(--gold)" : "var(--bad)");
+    document.getElementById("rationaleText").textContent = feedback;
+    document.getElementById("rationale").classList.add("show");
+    document.getElementById("nextBtn").classList.add("show");
+    recordAnswer(q.id, isCorrect);
+    renderVitals();
+  }
+
+  function showSelfGradeFallback(q){
+    document.getElementById("verdictLabel").textContent = "AI unavailable — self-check";
+    document.getElementById("rationaleText").innerHTML = `Expected answer: <strong>${escapeHtml(q.expectedAnswer||"(not provided)")}</strong><br><br>Compare with what you wrote, then mark yourself below.`;
+    document.getElementById("rationale").classList.add("show");
+    const rationale = document.getElementById("rationale");
+    const selfBtns = document.createElement("div");
+    selfBtns.className = "cta-row";
+    selfBtns.style.marginTop = "12px";
+    selfBtns.innerHTML = `<button class="btn-primary" id="selfCorrect" style="background:var(--good);">I got it right</button><button class="btn-ghost" id="selfWrong" style="border-color:var(--bad); color:var(--bad);">I got it wrong</button>`;
+    rationale.appendChild(selfBtns);
+    document.getElementById("selfCorrect").addEventListener("click", ()=>{ recordAnswer(q.id, true); renderVitals(); selfBtns.remove(); document.getElementById("nextBtn").classList.add("show"); });
+    document.getElementById("selfWrong").addEventListener("click", ()=>{ recordAnswer(q.id, false); renderVitals(); selfBtns.remove(); document.getElementById("nextBtn").classList.add("show"); });
   }
 
   function selectAnswer(idx,q){
@@ -722,6 +866,26 @@
     let added = 0;
     blocks.forEach(block=>{
       const lines = block.split("\n").map(l=>l.trim()).filter(Boolean);
+      const isShort = lines.some(l=>/^SA:/i.test(l));
+
+      if(isShort){
+        let qText="", expectedAnswer="", sourceHeading="", sourceSnippet="";
+        lines.forEach(line=>{
+          const mSA = line.match(/^SA:\s*(.+)/i);
+          const mAns = line.match(/^Answer:\s*(.+)/i);
+          const mSrc = line.match(/^Source:\s*(.+?)\s*—\s*"(.+)"/i) || line.match(/^Source:\s*(.+?)\s*-\s*"(.+)"/i);
+          if(mSA) qText = mSA[1];
+          else if(mAns) expectedAnswer = mAns[1];
+          else if(mSrc){ sourceHeading = mSrc[1]; sourceSnippet = mSrc[2]; }
+        });
+        if(qText && expectedAnswer){
+          const qid = uid();
+          state.customQuestions[qid] = { id: qid, subjectId, type:"short", q: qText, expectedAnswer, sourceHeading: sourceHeading||null, sourceSnippet: sourceSnippet||null };
+          added++;
+        }
+        return;
+      }
+
       let qText="", opts=["","","",""], correct=0, rationale="", sourceHeading="", sourceSnippet="";
       lines.forEach(line=>{
         const mQ = line.match(/^Q:\s*(.+)/i);
@@ -743,7 +907,7 @@
       });
       if(qText && opts.every(o=>o)){
         const qid = uid();
-        state.customQuestions[qid] = { id: qid, subjectId, q: qText, options: opts, correct, rationale: rationale || "No rationale provided.", sourceHeading: sourceHeading||null, sourceSnippet: sourceSnippet||null };
+        state.customQuestions[qid] = { id: qid, subjectId, type:"mc", q: qText, options: opts, correct, rationale: rationale || "No rationale provided.", sourceHeading: sourceHeading||null, sourceSnippet: sourceSnippet||null };
         added++;
       }
     });
@@ -763,6 +927,10 @@
           <select id="genSubject"><option value="__new__">Create new subject from topic</option>${subjOptions}</select>
         </div>
         <div class="field"><label>How many questions (1-20)</label><input type="text" id="genCount" value="10"></div>
+        <div class="field" style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" id="genShortAnswer" style="width:18px; height:18px;">
+          <label style="margin:0; text-transform:none; font-weight:600; font-size:13px; letter-spacing:0;">Include some short-answer questions (AI-graded)</label>
+        </div>
         <button class="btn-primary" id="genBtn" style="width:100%;">Generate</button>
         <div class="file-cap-note">Uses your daily AI chat allowance.</div>
       </div>`;
@@ -772,6 +940,7 @@
     document.getElementById("genBtn").addEventListener("click", async ()=>{
       const topic = document.getElementById("genTopic").value.trim();
       const count = parseInt(document.getElementById("genCount").value,10) || 10;
+      const includeShortAnswer = document.getElementById("genShortAnswer").checked;
       let subjectId = document.getElementById("genSubject").value;
       if(!topic){ alert("Please enter a topic."); return; }
       if(subjectId === "__new__"){
@@ -786,14 +955,18 @@
       try{
         const res = await fetch(WORKER_URL, {
           method:"POST", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({ mode:"generate", topic, count, subjectId })
+          body: JSON.stringify({ mode:"generate", topic, count, subjectId, includeShortAnswer })
         });
         const data = await res.json();
         if(!res.ok){ let m=data.message||"Something went wrong."; if(data.detail) m+="\n\n[Debug: "+data.detail+"]"; alert(m); overlay.remove(); return; }
         const added = parseAIQuestions(data.reply, subjectId);
         saveProgress();
         overlay.remove();
-        if(added>0){ alert(added + " question(s) generated and saved."); viewStudy(); }
+        if(added>0){
+          const note = added < count ? ` (you asked for ${count} — the AI produced ${added}; you can generate again to add more)` : "";
+          alert(added + " question(s) generated and saved." + note);
+          viewStudy();
+        }
         else alert("Couldn't parse the generated questions.\n\n[Raw AI reply:]\n" + (data.reply||"(empty)").slice(0,800));
       }catch(err){
         alert("Couldn't reach the study assistant. Check your connection.");
@@ -852,6 +1025,10 @@
           <select id="anaSubject"><option value="__new__">Create new subject from file name</option>${subjOptions}</select>
         </div>
         <div class="field"><label>How many questions (1-15)</label><input type="text" id="anaCount" value="12"></div>
+        <div class="field" style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" id="anaShortAnswer" style="width:18px; height:18px;">
+          <label style="margin:0; text-transform:none; font-weight:600; font-size:13px; letter-spacing:0;">Include some short-answer questions (AI-graded)</label>
+        </div>
         <button class="btn-primary" id="anaBtn" style="width:100%;" disabled>Choose a file first</button>
         <div class="file-cap-note">Limited file analysis sessions per day — one chapter/lecture at a time works best.</div>
       </div>`;
@@ -878,6 +1055,7 @@
     anaBtn.addEventListener("click", async ()=>{
       if(!selectedFile) return;
       const count = parseInt(document.getElementById("anaCount").value,10) || 12;
+      const includeShortAnswer = document.getElementById("anaShortAnswer").checked;
       let subjectId = document.getElementById("anaSubject").value;
       const sheet = overlay.querySelector(".modal-sheet");
       sheet.innerHTML = `<div class="analyze-progress"><div class="spinner"></div><div class="stage" id="stageText">Reading PDF...</div></div>`;
@@ -895,14 +1073,18 @@
         if(stageEl) stageEl.textContent = "Generating flashcards from content...";
         const res = await fetch(WORKER_URL, {
           method:"POST", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({ mode:"analyze", sections, count, subjectId })
+          body: JSON.stringify({ mode:"analyze", sections, count, subjectId, includeShortAnswer })
         });
         const data = await res.json();
         if(!res.ok){ let m=data.message||"Something went wrong."; if(data.detail) m+="\n\n[Debug: "+data.detail+"]"; alert(m); overlay.remove(); return; }
         const added = parseAIQuestions(data.reply, subjectId);
         saveProgress();
         overlay.remove();
-        if(added>0){ alert(added + " question(s) added, with source references."); viewStudy(); }
+        if(added>0){
+          const note = added < count ? ` (asked for ${count}, generated ${added} — try analyzing again to add more from the same file)` : "";
+          alert(added + " question(s) added, with source references." + note);
+          viewStudy();
+        }
         else alert("Couldn't parse the generated questions.\n\n[Raw AI reply:]\n" + (data.reply||"(empty)").slice(0,800));
       }catch(err){
         alert("Something went wrong reading or analyzing this file.\n\n[Debug: " + (err && err.message ? err.message : String(err)) + "]");
